@@ -1,4 +1,0 @@
-
-PASSENGER HANDLING:
-- "Rahul 25 male and mobile no is 9876543210" → passenger: Rahul 25 male
-- Multiple passengers: passenger: Rahul 25 male, passenger: Priya 22 female

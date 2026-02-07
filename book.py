@@ -1,233 +1,46 @@
 import time
 import datetime
-import undetected_chromedriver as uc
+import base64
+import os
+import tempfile
+import webbrowser
+import urllib.request
+import cv2
+import pytesseract
+import os
+
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
+#-----------------Extra Functions---------------------------
+import os
+import cv2
+import pytesseract
 
+def extract_text_from_image(image_path):
+    # Set tesseract path (Windows only)
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
-# ---------------- CHATBOT INJECTION ----------------
-def inject_chatbot(driver):
-    """Inject minimal voice-enabled chatbot into the page"""
-    script = """
-    // Create chatbot
-    let div = document.getElementById('selenium-chatbot');
-    if (!div) {
-        div = document.createElement('div');
-        div.id = 'selenium-chatbot';
-        div.style = `
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            width: 250px;
-            background: white;
-            border: 2px solid #000;
-            z-index: 999999;
-            padding: 5px;
-            font: 12px Arial;
-            box-shadow: 0 0 10px rgba(0,0,0,0.3);
-            border-radius: 5px;
-        `;
-        div.innerHTML = `
-            <div style="background:#000;color:white;padding:2px 5px;border-radius:3px;">
-                <b>🤖 IRCTC Assistant</b> 
-                <button style="float:right;background:none;border:none;color:white;cursor:pointer" onclick="this.parentNode.parentNode.style.display='none'">X</button>
-            </div>
-            <div id="chat-msgs" style="height:100px;overflow:auto;margin:5px 0;border:1px solid #ccc;padding:2px;background:#f9f9f9;"></div>
-            <div style="display:flex;gap:2px;">
-                <input id="chat-input" style="flex:1;padding:4px;border:1px solid #ccc;" placeholder="Type command...">
-                <button onclick="chatSend()" style="padding:4px 8px;background:#4CAF50;color:white;border:none;cursor:pointer">▶</button>
-                <button onclick="chatVoice()" title="Voice" style="padding:4px 8px;background:#2196F3;color:white;border:none;cursor:pointer">🎤</button>
-            </div>
-        `;
-        document.body.appendChild(div);
-        
-        
-        function resetHideTimer() {
-            clearTimeout(hideTimer);
-            hideTimer = setTimeout(() => div.style.display = 'none', 30000);
-        }
-        
-        // Add hover to show
-        div.addEventListener('mouseenter', () => clearTimeout(hideTimer));
-        div.addEventListener('mouseleave', () => hideTimer = setTimeout(() => div.style.display = 'none', 30000));
-        
-        function chatSend() {
-            resetHideTimer();
-            let inp = document.getElementById('chat-input');
-            let msg = inp.value.trim();
-            if (!msg) return;
-            
-            addMessage('You: ' + msg);
-            inp.value = '';
-            
-            // Process commands
-            let resp = processCommand(msg.toLowerCase());
-            addMessage('Bot: ' + resp);
-            
-            // Speak response
-            if (window.speechSynthesis) {
-                let speech = new SpeechSynthesisUtterance(resp);
-                speech.rate = 1.0;
-                speechSynthesis.speak(speech);
-            }
-        }
-        
-        function processCommand(cmd) {
-            // IRCTC-specific commands
-            if (cmd.includes('help')) return 'Commands: url, title, status, scroll top/bottom, elements, click first, find [text]';
-            if (cmd.includes('url')) return 'Current URL: ' + window.location.href;
-            if (cmd.includes('title')) return 'Page title: ' + document.title;
-            if (cmd.includes('status')) return 'Page loaded. Elements found: ' + document.querySelectorAll('*').length;
-            
-            if (cmd.includes('scroll top')) {
-                window.scrollTo(0, 0);
-                return 'Scrolled to top';
-            }
-            if (cmd.includes('scroll bottom')) {
-                window.scrollTo(0, document.body.scrollHeight);
-                return 'Scrolled to bottom';
-            }
-            
-            if (cmd.includes('elements')) {
-                let buttons = document.querySelectorAll('button').length;
-                let inputs = document.querySelectorAll('input').length;
-                let links = document.querySelectorAll('a').length;
-                return `Elements: ${buttons} buttons, ${inputs} inputs, ${links} links`;
-            }
-            
-            if (cmd.includes('click first')) {
-                let btn = document.querySelector('button');
-                if (btn) {
-                    btn.click();
-                    return 'Clicked first button';
-                }
-                return 'No buttons found';
-            }
-            
-            if (cmd.includes('find ')) {
-                let search = cmd.split('find ')[1];
-                if (search) {
-                    let elements = document.querySelectorAll('*');
-                    for (let el of elements) {
-                        if (el.textContent && el.textContent.includes(search)) {
-                            el.scrollIntoView({behavior: 'smooth'});
-                            return `Found "${search}" in element`;
-                        }
-                    }
-                    return `"${search}" not found`;
-                }
-            }
-            
-            // IRCTC page detection
-            if (window.location.href.includes('irctc')) {
-                if (document.title.includes('Login')) return 'You are on IRCTC login page';
-                if (document.title.includes('Book Ticket')) return 'You are on booking page';
-                if (document.querySelector('input[placeholder*="Name"]')) return 'Passenger details page';
-            }
-            
-            return 'Command: ' + cmd;
-        }
-        
-        function chatVoice() {
-            resetHideTimer();
-            if (window.webkitSpeechRecognition || window.SpeechRecognition) {
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                const recognition = new SpeechRecognition();
-                recognition.lang = 'en-US';
-                recognition.interimResults = false;
-                
-                recognition.onresult = (e) => {
-                    let transcript = e.results[0][0].transcript;
-                    document.getElementById('chat-input').value = transcript;
-                    chatSend();
-                };
-                
-                recognition.onerror = (e) => {
-                    addMessage('Bot: Voice error: ' + e.error);
-                };
-                
-                recognition.start();
-                addMessage('Bot: Listening...');
-            } else {
-                addMessage('Bot: Voice not supported');
-            }
-        }
-        
-        function addMessage(text) {
-            let msgs = document.getElementById('chat-msgs');
-            let msgDiv = document.createElement('div');
-            msgDiv.textContent = text;
-            msgDiv.style.padding = '2px 0';
-            msgs.appendChild(msgDiv);
-            msgs.scrollTop = msgs.scrollHeight;
-        }
-        
-        window.chatSend = chatSend;
-        window.chatVoice = chatVoice;
-        
-        // Initial message
-        addMessage('Bot: IRCTC Assistant ready. Say "help" for commands.');
-    }
-    """
-    try:
-        driver.execute_script(script)
-        print("🤖 Chatbot injected")
-    except Exception as e:
-        print(f"Failed to inject chatbot: {e}")
+    if not os.path.exists(image_path):
+        return ""
 
+    img = cv2.imread(image_path)
+    if img is None:
+        return ""
 
-# ---------------- NAVIGATE AND INJECT ----------------
-def navigate_and_inject(driver, url):
-    """Navigate to URL and inject chatbot"""
-    driver.get(url)
-    time.sleep(3)
-    inject_chatbot(driver)
-    return True
+    # Convert to grayscale
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
+    # Apply threshold to improve text clarity
+    gray = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)[1]
 
-# ---------------- Aadhaar Popup ----------------
-def handle_aadhaar_popup(driver, timeout=10):
-    try:
-        WebDriverWait(driver, timeout).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='OK']"))
-        ).click()
-        print("Aadhaar alert popup accepted.")
-        time.sleep(1)
-        inject_chatbot(driver)  # Re-inject after popup
-    except TimeoutException:
-        print("No Aadhaar alert popup found.")
+    # Extract text
+    text = pytesseract.image_to_string(gray, config="--psm 6")
 
-
-# ---------------- Login ----------------
-def login_irctc(driver, username, password, timeout=10):
-    wait = WebDriverWait(driver, timeout)
-
-    wait.until(
-        EC.element_to_be_clickable((By.XPATH, "//a[contains(text(),'LOGIN')]"))
-    ).click()
-    print("Login button clicked.")
-    time.sleep(3)
-    inject_chatbot(driver)  # Re-inject after navigation
-
-    wait.until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "input[formcontrolname='userid']"))
-    ).send_keys(username)
-
-    driver.find_element(
-        By.CSS_SELECTOR, "input[formcontrolname='password']"
-    ).send_keys(password)
-
-    driver.find_element(
-        By.XPATH, "//button[contains(text(),'SIGN IN')]"
-    ).click()
-
-    print("Login form submitted.")
-    time.sleep(5)
-    inject_chatbot(driver)  # Re-inject after login
+    return text.strip()
 
 
 # ---------------- Station Selector ----------------
@@ -321,7 +134,6 @@ def click_search_trains(driver):
     ).click()
     print("✅ Search button clicked successfully.")
     time.sleep(3)
-    inject_chatbot(driver)  # Re-inject after search results
 
 
 # ---------------- Book Train by Number (VISIBLE SCROLL) ----------------
@@ -372,14 +184,62 @@ def select_class_and_book(driver, train_number, class_name, timeout=30):
     # 5️⃣ Click Book Now
     driver.execute_script("arguments[0].click();", book_now_btn)
     print("✅ Book Now clicked successfully")
-    time.sleep(3)
-    inject_chatbot(driver)  # Re-inject after booking page
+    time.sleep(1)
+    
+    # 6️⃣ Handle any confirmation dialog that appears
+    handle_book_now_confirmation(driver, timeout=8)
 
 
 # ---------------- Passenger Details & Contact ----------------
 
+def handle_book_now_confirmation(driver, timeout=8):
+    """Handle any confirmation popup/dialog that appears after clicking Book Now.
+    Looks for Yes/OK buttons and clicks them.
+    Returns True if successfully handled, False otherwise."""
+    wait = WebDriverWait(driver, timeout)
+
+    # 1) Try PrimeNG confirm dialog with Yes button
+    precise_xpaths = [
+        "//div[contains(@class,'ui-dialog') and .//span[contains(., 'Yes')]]//button[.//span[contains(., 'Yes')]]",
+        "//p-confirmdialog//button[contains(., 'Yes')]",
+        "//div[contains(@class,'ui-dialog')]//button[contains(., 'Yes')]",
+        "//button[normalize-space()='Yes']",
+    ]
+    
+    for xp in precise_xpaths:
+        try:
+            yes_btn = wait.until(EC.element_to_be_clickable((By.XPATH, xp)))
+            driver.execute_script("arguments[0].click();", yes_btn)
+            print("Clicked Yes on Book Now confirmation dialog.")
+            time.sleep(0.5)
+            return True
+        except TimeoutException:
+            continue
+
+    # 2) Try OK button as fallback
+    ok_xpaths = [
+        "//div[contains(@class,'ui-dialog')]//button[normalize-space()='OK']",
+        "//button[normalize-space()='OK']",
+        "//button[contains(., 'OK')]",
+    ]
+    
+    for xp in ok_xpaths:
+        try:
+            ok_btn = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.XPATH, xp)))
+            driver.execute_script("arguments[0].click();", ok_btn)
+            print("Clicked OK on Book Now confirmation dialog.")
+            time.sleep(0.5)
+            return True
+        except TimeoutException:
+            continue
+
+    return False
+
+
 def confirm_food_dialog(driver, timeout=6):
-    """Wait for the Confirmation dialog about food/beverages and click OK."""
+    """Wait for the Confirmation dialog about food/beverages and click OK.
+    Uses a precise selector for the IRCTC confirmation modal (see yep2.html), then falls back to generic strategies.
+    Returns True if OK was clicked, False otherwise."""
     wait = WebDriverWait(driver, timeout)
 
     # 1) Precise selector matching the structure in `yep2.html` (Confirmation dialog inside a ui-dialog)
@@ -392,7 +252,7 @@ def confirm_food_dialog(driver, timeout=6):
     except TimeoutException:
         pass
 
-    # 2) Generic dialog containers
+    # 2) Generic dialog containers that likely contain the message (case-insensitive search for 'food')
     dialog_xpaths = [
         "//div[contains(@class,'modal') and .//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'food')]]",
         "//div[contains(@role,'dialog') and .//*[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),'food')]]",
@@ -445,7 +305,8 @@ def confirm_food_dialog(driver, timeout=6):
 
 
 def fill_passenger_details(driver, passengers, mobile, timeout=10):
-    """Fill passenger names, age, gender, berth preference and contact number, then click Continue."""
+    """Fill passenger names, age, gender, berth preference and contact number, then click Continue.
+    Automatically adds more passengers by clicking the 'Add Passenger' button as needed."""
     wait = WebDriverWait(driver, timeout)
 
     # wait for passenger name inputs to appear
@@ -453,6 +314,36 @@ def fill_passenger_details(driver, passengers, mobile, timeout=10):
         name_inputs = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[placeholder='Name']")))
     except TimeoutException:
         print("Passenger form not found.")
+        return
+
+    # Add more passenger forms if needed
+    num_passengers = len(passengers)
+    current_form_count = len(driver.find_elements(By.CSS_SELECTOR, "input[placeholder='Name']"))
+    
+    print(f"Total passengers to add: {num_passengers}, Current forms available: {current_form_count}")
+    
+    # Click "Add Passenger" button to add more forms
+    if current_form_count < num_passengers:
+        passengers_to_add = num_passengers - current_form_count
+        for i in range(passengers_to_add):
+            try:
+                # Find and click the "Add Passenger" link
+                add_passenger_link = wait.until(
+                    EC.element_to_be_clickable((By.XPATH, "//a[contains(., 'Add Passenger') or contains(., 'add passenger')]"))
+                )
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", add_passenger_link)
+                driver.execute_script("arguments[0].click();", add_passenger_link)
+                print(f"Clicked 'Add Passenger' button (iteration {i+1}/{passengers_to_add})")
+                time.sleep(0.8)  # Wait for new form to load
+            except Exception as e:
+                print(f"Failed to click 'Add Passenger' button on iteration {i+1}: {e}")
+                break
+
+    # Re-fetch all form elements after adding passengers
+    try:
+        name_inputs = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[placeholder='Name']")))
+    except TimeoutException:
+        print("Passenger forms not found after adding passengers.")
         return
 
     age_inputs = driver.find_elements(By.CSS_SELECTOR, "input[placeholder='Age'], input[formcontrolname='passengerAge']")
@@ -504,9 +395,9 @@ def fill_passenger_details(driver, passengers, mobile, timeout=10):
     except Exception as e:
         print("Mobile input not found:", e)
 
-    # try to unselect food/beverages
+    # try to unselect food/beverages (check 'I don't want food and beverages') and accept confirmation
     try:
-        # search for a label containing 'food' or 'beverage'
+        # search for a label containing 'food' or 'beverage' (case-insensitive)
         label = None
         xpaths = [
             "//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'food') or contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'beverage') ]",
@@ -537,6 +428,7 @@ def fill_passenger_details(driver, passengers, mobile, timeout=10):
                     driver.execute_script("arguments[0].click();", checkbox)
                     print("No-food checkbox clicked. Waiting for confirmation dialog...")
                     try:
+                        # first try the targeted dialog handler
                         confirmed = confirm_food_dialog(driver, timeout=6)
                         if confirmed:
                             print("No-food confirmation handled by modal OK click.")
@@ -616,97 +508,145 @@ def fill_passenger_details(driver, passengers, mobile, timeout=10):
         driver.execute_script("arguments[0].scrollIntoView({block:'center'});", continue_btn)
         driver.execute_script("arguments[0].click();", continue_btn)
         print("Continue clicked — moving to review/payment page.")
-        
-        time.sleep(5)
-        inject_chatbot(driver)  # Inject on payment page
-        
-        print("🤖 Chatbot active! You can use voice/text commands.")
-        print("Commands: 'help', 'url', 'title', 'status', 'scroll top', 'find [text]'")
-        
-        if KEEP_BROWSER_OPEN:
-            print("Browser will stay open for manual payment/inspection.")
-            print("Press Ctrl+C in terminal to exit script (browser will remain).")
-            
-            # Keep script running to maintain chatbot
-            try:
-                while True:
-                    time.sleep(1)
-                    # Check for page navigation and re-inject
-                    current_url = driver.current_url
-                    if hasattr(driver, '_last_url') and driver._last_url != current_url:
-                        inject_chatbot(driver)
-                        driver._last_url = current_url
-            except KeyboardInterrupt:
-                print("\nScript stopped by user. Browser remains open.")
-        else:
-            input("Press ENTER to close the script and browser...")
-            return
-
     except Exception as e:
         print("Failed to click Continue:", e)
 
 
-# ===================== MAIN =====================
-# Set to True to KEEP the browser open after navigating to review/payment
-KEEP_BROWSER_OPEN = True
+def handle_captcha_and_continue(driver, timeout=120):
+    """Save captcha image, open it for the user, prompt for text, fill captcha and click Continue."""
+    wait = WebDriverWait(driver, timeout)
+    try:
+        img = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "img.captcha-img")))
+        src = img.get_attribute('src')
+    except TimeoutException:
+        print("Captcha image not found on review page.")
+        return False
 
-driver = None
-try:
-    options = uc.ChromeOptions()
-    options.add_argument("--start-maximized")
-    options.add_argument("--disable-web-security")
-    options.add_argument("--allow-running-insecure-content")
-    
-    # Enable voice permissions
-    prefs = {
-        "profile.default_content_setting_values.media_stream_mic": 1,
-        "profile.default_content_setting_values.media_stream_camera": 1,
-    }
-    options.add_experimental_option("prefs", prefs)
-    
-    driver = uc.Chrome(version_main=144, options=options)
-    
-    # Initial navigation with chatbot injection
-    navigate_and_inject(driver, "https://www.irctc.co.in")
-    driver._last_url = driver.current_url  # Track URL for re-injection
-    
-    handle_aadhaar_popup(driver)
-    login_irctc(driver, "Satyam_rajawat113", "Satyam@28312")
+    # Save captcha to temporary file
+    try:
+        fd, path = tempfile.mkstemp(suffix='.png')
+        os.close(fd)
+        if src and src.startswith('data:image'):
+            header, b64 = src.split(',', 1)
+            data = base64.b64decode(b64)
+            with open(path, 'wb') as f:
+                f.write(data)
+        else:
+            # fallback: try to download via urllib
+            try:
+                urllib.request.urlretrieve(src, path)
+            except Exception as e:
+                print('Failed to save captcha image:', e)
+                return False
 
-    set_station(driver, "Kota", "From")
-    set_station(driver, "NDLS", "To")
+        # Open image for user to read (Windows: os.startfile)
+        try:
+            if os.name == 'nt':
+                os.startfile(path)
+            else:
+                webbrowser.open(path)
+        except Exception:
+            webbrowser.open(path)
 
-    select_class(driver, "AC 2 Tier (2A)")
-    select_date(driver, "05/03/2026")
-    click_search_trains(driver)
+        # Prompt user to enter captcha
+        #Manual Captcha
+        #captcha_value = input('Please enter captcha shown in opened image: ').strip()
+        #By function method
+        captcha_value = extract_text_from_image(path)
+        if not captcha_value:
+            print('No captcha entered, aborting.')
+            return False
 
-    select_class_and_book(
-        driver,
-        train_number="12951",
-        class_name="AC 2 Tier (2A)"
-    )
+        # Fill captcha input and click Continue
+        try:
+            captcha_input = wait.until(EC.presence_of_element_located((By.ID, 'captcha')))
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", captcha_input)
+            captcha_input.clear()
+            captcha_input.send_keys(captcha_value)
+            time.sleep(0.3)
 
-    # --- Passenger data: edit as needed ---
-    PASSENGERS = [
-        {"name": "Raghav Gupta", "age": 28, "gender": "M", "berth": "LB"},
-        {"name": "Pankaj Gupta", "age": 50, "gender": "M", "berth": "UB"},
+            # find Continue button (desktop/mobile variants)
+            try:
+                continue_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.train_Search, button[type=submit], button.btnDefault.train_Search")))
+            except Exception:
+                # last resort: find button with text Continue
+                continue_btn = driver.find_element(By.XPATH, "//button[contains(normalize-space(.),'Continue') or contains(normalize-space(.),'CONTINUE')]")
+
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", continue_btn)
+            driver.execute_script("arguments[0].click();", continue_btn)
+            print('Captcha entered and Continue clicked.')
+            return True
+        except Exception as e:
+            print('Failed to enter captcha or click Continue:', e)
+            return False
+    finally:
+        # optional: keep the captcha file for inspection; do not delete immediately
+        pass
+
+
+def handle_payment_selection(driver, timeout=30):
+    """Select BHIM/UPI/USSD payment option and click the BHIM/Paytm pay button (with fallbacks)."""
+    wait = WebDriverWait(driver, timeout)
+    try:
+        # wait for payment options area (many IRCTC pages use id 'pay-type')
+        wait.until(EC.presence_of_element_located((By.ID, 'pay-type')))
+    except Exception:
+        # fallback: wait for any bank-type tile
+        try:
+            wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class,'bank-type')]")))
+        except Exception:
+            print('Payment options area not found.')
+            return False
+
+    # Attempt to click the BHIM/UPI/USSD payment tile
+    bhim_xpaths = [
+        "//div[contains(@class,'bank-type') and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'bhim') and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'upi')]",
+        "//div[contains(@class,'bank-type') and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'bhim')]",
+        "//div[contains(normalize-space(.),'BHIM/ UPI/ USSD') or contains(normalize-space(.),'BHIM/ UPI/USSD')]",
     ]
-    MOBILE_NUMBER = "9200000075"  # edit to your contact number (10 digits)
 
-    # fill passenger details and continue to review/payment
-    fill_passenger_details(driver, PASSENGERS, MOBILE_NUMBER)
+    clicked = False
+    for xp in bhim_xpaths:
+        try:
+            el = WebDriverWait(driver, 3).until(EC.element_to_be_clickable((By.XPATH, xp)))
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+            driver.execute_script("arguments[0].click();", el)
+            print('Clicked BHIM/UPI/USSD payment option.')
+            clicked = True
+            time.sleep(0.6)
+            break
+        except Exception:
+            continue
 
-    # Keep the browser open if flag is set
-    if KEEP_BROWSER_OPEN:
-        print("🤖 Chatbot remains active. You can interact with it.")
-        print("The chatbot auto-hides after 30s inactivity. Hover to show.")
-        print("Close browser manually when done.")
+    if not clicked:
+        print('Could not find BHIM/UPI/USSD payment tile; aborting payment selection.')
+        return False
 
-except Exception as e:
-    print(f"Error in main execution: {e}")
-    import traceback
-    traceback.print_exc()
+    # Wait for and click the Pay using BHIM (Paytm) button, with fallbacks
+    pay_xpaths = [
+        "//button[contains(normalize-space(.),'Pay using BHIM') or contains(normalize-space(.),'Pay using BHIM (Powered')]",
+        "//a[contains(normalize-space(.),'Pay using BHIM') or contains(normalize-space(.),'Pay using BHIM (Powered')]",
+        "//button[contains(normalize-space(.),'Pay & Book') or contains(normalize-space(.),'Pay & Book')]",
+        "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'pay') and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'bhim')]",
+    ]
 
-finally:
-    if driver and not KEEP_BROWSER_OPEN:
-        driver.quit()
+    for xp in pay_xpaths:
+        try:
+            btn = WebDriverWait(driver, 6).until(EC.element_to_be_clickable((By.XPATH, xp)))
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
+            driver.execute_script("arguments[0].click();", btn)
+            print('Clicked pay button (xpath):', xp)
+            return True
+        except Exception:
+            continue
+
+    # Last resort: click any prominent 'Pay' or 'Pay & Book' button on page
+    try:
+        generic = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'pay') and (contains(., '&') or contains(., 'Book'))]")))
+        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", generic)
+        driver.execute_script("arguments[0].click();", generic)
+        print('Clicked generic Pay button.')
+        return True
+    except Exception:
+        print('Failed to find a pay button for BHIM; please click it manually in the browser.')
+        return False
